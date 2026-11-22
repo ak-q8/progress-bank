@@ -145,7 +145,7 @@ textarea{width:100%;min-height:72px;font:inherit;color:var(--ink);background:var
 body.li .main{padding-top:48px}
 #modal{position:fixed;inset:0;z-index:60;background:rgba(5,10,16,.55);display:grid;place-items:center;padding:16px}
 #modal .mb{background:var(--surf);border-radius:16px;max-width:460px;width:100%;max-height:86vh;overflow:auto;padding:22px;box-shadow:var(--sh)}
-#modal ol{padding-left:20px;margin:10px 0}#modal li{margin:8px 0}
+#modal ol{padding-left:20px;margin:10px 0}.tap{cursor:pointer;-webkit-tap-highlight-color:transparent}.tap:active{opacity:.7}#modal li{margin:8px 0}
 .exbar{position:sticky;top:0;z-index:20;background:var(--bg);padding:10px 0;display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--line)}
 .exbar .tm{font:600 18px var(--mono)}.exbar .tm.low{color:var(--no)}
 .opt.pk{border-color:var(--ac);background:var(--acb)}
@@ -196,7 +196,7 @@ async function flush(){if(saving){saveT=setTimeout(flush,800);return}saving=true
  try{await dbref.set({json:JSON.stringify({r:S,c:C,p:P}),t:Date.now()});where='account'}catch(e){where='device'}saving=false;foot();if(tab=='review')render()}
 async function init(){
  const l=lsGet();if(l)S=l;else migrate();
- if(SBON){auLoad();if(!AU){authView();return}await afterLogin();return}
+ if(SBON){if(hashAuth())return;auLoad();if(!AU){authView();return}await afterLogin();return}
  try{const claude=window.claude;if(claude&&claude.use){const [db,user]=await Promise.all([claude.use('db'),claude.use('user')]);
   if(db&&user){uid=await user.id();if(uid){dbref=db.doc('data/users/'+uid+'/mcq_state');const s=await dbref.get();
    if(s.exists){let r=JSON.parse(s.data().json||'{}');if(r.p)for(const k in r.p)P[k]=1;if(r.r){if(r.c&&!lsGet())C=Object.assign(C,r.c);r=r.r}for(const k in r){const a=S[k],b=r[k];S[k]=!a?b:{due:Math.min(a.due??1e18,b.due??1e18)==1e18?null:Math.min(a.due??1e18,b.due??1e18),w:a.w||b.w,hl:[...(a.hl||[]),...(b.hl||[]).filter(x=>!(a.hl||[]).some(y=>y.t==x.t))],note:a.note||b.note||''}}}
@@ -309,10 +309,10 @@ function wrongAdd(id){const r=rec(id);r.w=1;r.due=Date.now();persist()}
 const EYE='<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',EYEOFF='<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></svg>';
 function isOut(id,k){return !!(XO[id]&&XO[id].has(k))}
 function strike(k){const q=list[i];if(!q||solved)return;const s=XO[q.id]||(XO[q.id]=new Set());s.has(k)?s.delete(k):s.add(k);render()}
-function pick(k){const q=list[i];if(!q||tried.includes(k)||(solved&&k==q.ans))return;tried.push(k);
+function pick(k){const q=list[i];if(!q||tried.includes(k)||(solved&&k==q.ans))return;const live=!solved;tried.push(k);if(live)logPick(q.id,k,k==q.ans,tried.length);
  if(k==q.ans){solved=true;P[q.id]=1;persist();if(first){score++;done++;logAns(q.id,true);const r=S[q.id];if(r&&r.due!=null){if(gap(q.id)<0){r.w=0;r.due=Date.now()}else if(r.m){r.w=0;r.due=Date.now()+gap(q.id)*DAY}else{r.w=0;r.due=null;clean(q.id)}persist()}}}else if(!solved&&first){done++;first=false;wrongAdd(q.id);logAns(q.id,false)}
  render()}
-function reveal(){const q=list[i];P[q.id]=1;persist();if(first){done++;first=false;wrongAdd(q.id);logAns(q.id,false)}solved=true;render()}
+function reveal(){const q=list[i];if(!solved)logPick(q.id,-1,false,tried.length+1);P[q.id]=1;persist();if(first){done++;first=false;wrongAdd(q.id);logAns(q.id,false)}solved=true;render()}
 document.addEventListener('keydown',e=>{if(e.metaKey||e.ctrlKey||e.altKey)return;const t=e.target&&e.target.tagName;if(t=='TEXTAREA'||t=='INPUT')return;
  if(e.key=='Escape'&&!$('labs').hidden){closeLabs();return}
  if(tab!='practice'||!$('labs').hidden)return;
@@ -416,8 +416,9 @@ function render(){render0();const v=$('view');
  else if(xferMsg&&tab!='review'){v.insertAdjacentHTML('afterbegin',`<div class="warn" style="margin-bottom:12px">${esc(xferMsg)}</div>`);xferMsg=''}}
 /* ===================== accounts, exam modes, reports, student view ===================== */
 const SBON=!!(SB.url&&SB.key);
-let AU=null,ISADMIN=false,QUE=[],qT=null,qbusy=false;
+let AU=null,ISADMIN=false,QUE=[],qT=null,qbusy=false,PQ=[],pT=null,pbusy=false,RT=null,ainfo='';
 try{QUE=JSON.parse(localStorage.getItem('mcq_q')||'[]')}catch(e){}
+try{PQ=JSON.parse(localStorage.getItem('mcq_pq')||'[]')}catch(e){}
 const YEARS=['Med 1','Med 2','Med 3','Med 4','Med 5','GEM 1','GEM 2','GEM 3','GEM 4'];
 const lsS=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(e){}};
 function auLoad(){try{AU=JSON.parse(localStorage.getItem('mcq_auth')||'null')}catch(e){AU=null}}
@@ -437,21 +438,33 @@ function showTerms(){openModal(`<h2 style="margin-top:0">Terms and conditions</h
 let amode='login',aerr='',abusy=false,AF={name:'',year:'',email:''};
 function authView(){document.querySelector('.app').hidden=true;$('tabbar').hidden=true;$('hi')&&($('hi').hidden=true);document.body.classList.remove('li');
  let a=$('auth');if(!a){a=document.createElement('div');a.id='auth';document.body.insertBefore(a,document.body.firstChild)}a.hidden=false;
+ if(amode=='forgot'||amode=='reset'){const fg=amode=='forgot';
+  a.innerHTML=`<div class="box"><div class="brand" style="padding:0"><div class="mark"><svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 4 12 2.5-6H21"/></svg></div><div><div class="bn" style="color:var(--ink)">Progress Bank</div></div></div>
+  <div class="card" style="margin-top:18px"><h2 style="margin:0">${fg?'Reset your password':'Choose a new password'}</h2>
+  <div class="mu sm" style="margin-top:6px">${fg?'Enter the email you signed up with and we’ll send you a link to set a new password.':'Enter a new password for your account.'}</div>
+  ${ainfo?`<div class="warn" style="margin-top:12px">${esc(ainfo)}</div>`:''}
+  <form onsubmit="${fg?'authForgot(event)':'authReset(event)'}" novalidate>
+  ${fg?`<label class="fld"><span>Email</span><input id="a_email" type="email" autocomplete="email" value="${esc(AF.email)}"></label>`
+  :`<label class="fld"><span>New password</span><input id="a_pw" type="password" autocomplete="new-password"></label><label class="fld"><span>Repeat new password</span><input id="a_pw2" type="password" autocomplete="new-password"></label>`}
+  ${aerr?`<div class="err" role="alert">${esc(aerr)}</div>`:''}
+  <div class="row" style="margin-top:16px"><button class="btn pri" style="width:100%;justify-content:center" ${abusy?'disabled':''}>${abusy?'Please wait…':fg?'Send reset link':'Save new password'}</button></div></form>
+  <div class="mu sm" style="margin-top:14px;text-align:center"><button class="lnk" onclick="amode='login';aerr='';ainfo='';RT=null;authView()">Back to log in</button></div></div></div>`;return}
  const su=amode=='signup';
  a.innerHTML=`<div class="box"><div class="brand" style="padding:0"><div class="mark"><svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 4 12 2.5-6H21"/></svg></div><div><div class="bn" style="color:var(--ink)">Progress Bank</div></div></div>
- <div class="card" style="margin-top:18px"><h2 style="margin:0">${su?'Create your account':'Log in'}</h2>
+ <div class="card" style="margin-top:18px"><h2 style="margin:0">${su?'Create your account':'Log in'}</h2>${ainfo?`<div class="warn" style="margin-top:12px">${esc(ainfo)}</div>`:''}
  <form onsubmit="authGo(event)" novalidate>
  ${su?`<label class="fld"><span>Name</span><input id="a_name" autocomplete="name" value="${esc(AF.name)}"></label>
  <label class="fld"><span>Year</span><select id="a_year"><option value="">Choose your year</option>${YEARS.map(y=>`<option ${AF.year==y?'selected':''}>${y}</option>`).join('')}</select></label>`:''}
  <label class="fld"><span>Email</span><input id="a_email" type="email" autocomplete="email" value="${esc(AF.email)}"></label>
  <label class="fld"><span>Password</span><input id="a_pw" type="password" autocomplete="${su?'new-password':'current-password'}"></label>
+ ${su?'':`<div style="margin:-4px 0 4px;text-align:right"><button type="button" class="lnk sm" onclick="keepAF();amode='forgot';aerr='';ainfo='';authView()">Forgot password?</button></div>`}
  ${su?`<label class="agree"><input id="a_terms" type="checkbox" ${AF.terms?'checked':''}><span>I agree to the <button type="button" class="lnk" onclick="event.preventDefault();showTerms()">terms and conditions</button></span></label>`:''}
  ${aerr?`<div class="err" role="alert">${esc(aerr)}</div>`:''}
  <div class="row" style="margin-top:16px"><button class="btn pri" style="width:100%;justify-content:center" ${abusy?'disabled':''}>${abusy?'Please wait…':su?'Create account':'Log in'}</button></div></form>
- <div class="mu sm" style="margin-top:14px;text-align:center">${su?'Already have an account?':'New here?'} <button class="lnk" onclick="amode='${su?'login':'signup'}';aerr='';authView()">${su?'Log in':'Create an account'}</button></div>
+ <div class="mu sm" style="margin-top:14px;text-align:center">${su?'Already have an account?':'New here?'} <button class="lnk" onclick="amode='${su?'login':'signup'}';aerr='';ainfo='';authView()">${su?'Log in':'Create an account'}</button></div>
  ${su?'<div class="mu sm" style="margin-top:12px">Already practising on this device? Your saved progress will be added to your account when you sign in. Please don’t clear your browser data before then.</div>':''}</div></div>`}
 function keepAF(){const g=i=>($(i)||{}).value;if($('a_name'))AF.name=g('a_name')||'';if($('a_year'))AF.year=g('a_year')||'';if($('a_email'))AF.email=g('a_email')||'';if($('a_terms'))AF.terms=$('a_terms').checked}
-async function authGo(e){e.preventDefault();keepAF();const su=amode=='signup',email=($('a_email').value||'').trim(),pw=$('a_pw').value||'';
+async function authGo(e){e.preventDefault();keepAF();ainfo='';const su=amode=='signup',email=($('a_email').value||'').trim(),pw=$('a_pw').value||'';
  if(su){if(!AF.name.trim())return aerr='Please enter your name.',authView();if(!AF.year)return aerr='Please choose your year.',authView();}
  if(!/^\S+@\S+\.\S+$/.test(email))return aerr='Please enter a valid email address.',authView();
  if(pw.length<(su?8:1))return aerr=su?'Password must be at least 8 characters.':'Please enter your password.',authView();
@@ -463,25 +476,53 @@ async function authGo(e){e.preventDefault();keepAF();const su=amode=='signup',em
   else{const r=await fetch(SB.url+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:SB.key,'Content-Type':'application/json'},body:JSON.stringify({email,password:pw})});j=await r.json();if(!r.ok)throw new Error(/invalid/i.test(j.msg||j.error_description||j.message||'')?'Email or password is not right.':(j.msg||j.error_description||j.message||'Could not log in.'))}
   setSess(j);abusy=false;await afterLogin()}
  catch(x){abusy=false;aerr=x.message||'Something went wrong. Please try again.';authView()}}
+async function authForgot(e){e.preventDefault();keepAF();const email=($('a_email').value||'').trim();
+ if(!/^\S+@\S+\.\S+$/.test(email))return aerr='Please enter a valid email address.',authView();
+ abusy=true;aerr='';ainfo='';authView();
+ try{const r=await fetch(SB.url+'/auth/v1/recover?redirect_to='+encodeURIComponent(location.origin+location.pathname),{method:'POST',headers:{apikey:SB.key,'Content-Type':'application/json'},body:JSON.stringify({email})});
+  if(!r.ok){let j={};try{j=await r.json()}catch(x){}throw new Error(/rate/i.test(j.msg||j.message||'')?'Too many requests. Please wait a few minutes and try again.':(j.msg||j.message||'Could not send the email. Please try again.'))}
+  abusy=false;ainfo='If that email has an account, a reset link is on its way. It can take a few minutes. Check your spam folder too.';authView()}
+ catch(x){abusy=false;aerr=x.message;authView()}}
+async function authReset(e){e.preventDefault();const p1=$('a_pw').value||'',p2=$('a_pw2').value||'';
+ if(p1.length<8)return aerr='Password must be at least 8 characters.',authView();if(p1!==p2)return aerr='The two passwords don’t match.',authView();
+ abusy=true;aerr='';authView();
+ try{const r=await fetch(SB.url+'/auth/v1/user',{method:'PUT',headers:{apikey:SB.key,'Content-Type':'application/json',Authorization:'Bearer '+RT},body:JSON.stringify({password:p1})});
+  if(!r.ok){let j={};try{j=await r.json()}catch(x){}throw new Error(/same/i.test(j.msg||j.message||'')?'Please choose a password you haven’t used before.':(j.msg||j.message||'That link has expired. Go back and request a new one.'))}
+  abusy=false;RT=null;amode='login';aerr='';ainfo='Password updated. Log in with your new password.';authView()}
+ catch(x){abusy=false;aerr=x.message;authView()}}
+function hashAuth(){let h;try{h=new URLSearchParams(location.hash.replace(/^#/,''))}catch(e){return false}
+ if(h.get('type')=='recovery'&&h.get('access_token')){RT=h.get('access_token');amode='reset';aerr='';ainfo='';try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}authView();return true}
+ if(h.get('error_code')||h.get('error_description')){amode='forgot';ainfo='';aerr='That reset link has expired or was already used. Enter your email to get a new one.';try{history.replaceState(null,'',location.pathname+location.search)}catch(e){}authView();return true}
+ return false}
+try{window.addEventListener('hashchange',()=>{if(SBON)hashAuth()})}catch(e){}
 async function afterLogin(){
  const a=$('auth');if(a)a.hidden=true;document.querySelector('.app').hidden=false;$('tabbar').hidden=false;
  const own=localStorage.getItem('mcq_owner');
- if(own&&own!==AU.user.id){S={};C={def:3};P={};lsS('mcq_state3',null);QUE=[];lsS('mcq_q',null)}
+ if(own&&own!==AU.user.id){S={};C={def:3};P={};lsS('mcq_state3',null);QUE=[];lsS('mcq_q',null);PQ=[];lsS('mcq_pq',null)}
  where='device';
  try{const rows=await sbf('/rest/v1/progress?user_id=eq.'+AU.user.id+'&select=state');
   if(rows&&rows[0]&&rows[0].state&&rows[0].state.r){const o=rows[0].state;if(o.c&&!Object.keys(S).length)C=Object.assign({def:3},o.c);mergeIn(o)}where='account'}catch(e){}
  lsS('mcq_owner',AU.user.id);
  try{ISADMIN=(await rpc('is_admin'))===true}catch(e){ISADMIN=false}
- persist();hiPill();nav();foot();build();render();flushQueue()}
+ persist();hiPill();nav();foot();build();render();await backfill();flushQueue();flushPicks()}
 function hiPill(){let h=$('hi');if(!h){h=document.createElement('button');h.id='hi';document.body.appendChild(h)}h.hidden=false;document.body.classList.add('li');
  const n=(AU.user.name||AU.user.email||'').split(' ')[0];h.textContent='Hi, '+n;h.onclick=()=>openModal(`<h2 style="margin-top:0">${esc(AU.user.name||'Your account')}</h2><div class="mu sm">${esc(AU.user.year||'')}${AU.user.year?' · ':''}${esc(AU.user.email||'')}</div><div class="mu sm" style="margin-top:10px">${where=='account'?'Your progress is saved to your account.':'Could not reach your account just now. Progress is saved on this device and will sync later.'}</div><div class="row" style="margin-top:16px;justify-content:space-between"><button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="logout()">Log out</button></div>`)}
 async function logout(){closeModal();try{await sbFlush();await flushQueue()}catch(e){}
- AU=null;ISADMIN=false;['mcq_auth','mcq_owner','mcq_state3','mcq_q','mcq_exam'].forEach(k=>lsS(k,null));S={};C={def:3};P={};QUE=[];EX=null;amode='login';aerr='';ST={};list=[];done=0;authView()}
+ AU=null;ISADMIN=false;['mcq_auth','mcq_owner','mcq_state3','mcq_q','mcq_pq','mcq_exam'].forEach(k=>lsS(k,null));S={};C={def:3};P={};QUE=[];PQ=[];EX=null;amode='login';ainfo='';aerr='';ST={};list=[];done=0;authView()}
 /* ---- sync ---- */
+async function backfill(){if(!(SBON&&AU))return;const key='mcq_bf_'+AU.user.id;try{if(localStorage.getItem(key))return}catch(e){}
+ try{const have=new Set();const ex=await sbf('/rest/v1/answers?select=question_id&limit=5000');(ex||[]).forEach(r=>have.add(r.question_id));
+  const rows=[];Object.keys(P).forEach(k=>{const id=+k;if(!Q[id]||have.has(id))return;const r=S[id];const wrong=!!(r&&(r.due!=null||r.w));const q=Q[id];rows.push({user_id:AU.user.id,question_id:id,correct:!wrong,q_group:q.group,q_topic:q.topic,exam:false,at:new Date().toISOString()})});
+  for(let i=0;i<rows.length;i+=400)await sbf('/rest/v1/answers',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(rows.slice(i,i+400))});
+  try{localStorage.setItem(key,'1')}catch(e){}}catch(e){}}
+
 async function sbFlush(){if(!(SBON&&AU))return;if(saving){saveT=setTimeout(sbFlush,800);return}saving=true;
  try{await sbf('/rest/v1/progress?on_conflict=user_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({user_id:AU.user.id,state:{r:S,c:C,p:P},updated_at:new Date().toISOString()})});where='account'}catch(e){where='device'}
  saving=false;foot()}
 function logAns(id,ok,ex){if(!(SBON&&AU)||!Q[id])return;const q=Q[id];QUE.push({user_id:AU.user.id,question_id:id,correct:!!ok,q_group:q.group,q_topic:q.topic,exam:!!ex,at:new Date().toISOString()});lsS('mcq_q',JSON.stringify(QUE));clearTimeout(qT);qT=setTimeout(flushQueue,1500)}
+function logPick(id,opt,ok,n,ex){if(!(SBON&&AU)||!Q[id])return;PQ.push({user_id:AU.user.id,question_id:id,opt,correct:!!ok,try_n:n,exam:!!ex,at:new Date().toISOString()});lsS('mcq_pq',JSON.stringify(PQ));clearTimeout(pT);pT=setTimeout(flushPicks,1500)}
+async function flushPicks(){if(!(SBON&&AU)||!PQ.length||pbusy)return;pbusy=true;const b=PQ.slice(0,200);
+ try{await sbf('/rest/v1/picks',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(b)});PQ=PQ.slice(b.length);lsS('mcq_pq',JSON.stringify(PQ));pbusy=false;if(PQ.length)flushPicks()}catch(e){pbusy=false;if(e&&e.status>=400&&e.status<500&&e.status!=401&&e.status!=404&&e.status!=429){PQ=[];lsS('mcq_pq',null)}if(PQ.length>3000){PQ=PQ.slice(-3000);lsS('mcq_pq',JSON.stringify(PQ))}}}
 async function flushQueue(){if(!(SBON&&AU)||!QUE.length||qbusy)return;qbusy=true;const b=QUE.slice(0,200);
  try{await sbf('/rest/v1/answers',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(b)});QUE=QUE.slice(b.length);lsS('mcq_q',JSON.stringify(QUE));qbusy=false;if(QUE.length)flushQueue()}catch(e){qbusy=false}}
 /* ---- report a problem ---- */
@@ -521,7 +562,7 @@ function exAns(k){const id=EX.ids[EX.i];EX.a[id]=k;exSave();render()}
 function exFlag(){const id=EX.ids[EX.i],x=EX.f.indexOf(id);x<0?EX.f.push(id):EX.f.splice(x,1);exSave();render()}
 function exGo(d){EX.i=Math.max(0,Math.min(EX.ids.length-1,EX.i+d));exSave();render();window.scrollTo(0,0)}
 async function exSubmit(auto){if(!EX||EX.done)return;clearInterval(exT);const by={},wrong=[];let score=0;
- EX.ids.forEach(id=>{const q=Q[id],a=EX.a[id],ok=a===q.ans;(by[q.group]=by[q.group]||[0,0])[1]++;if(ok){score++;by[q.group][0]++}else{wrong.push(id);if(a!=null)wrongAdd(id)}if(a!=null)logAns(id,ok,true)});
+ EX.ids.forEach(id=>{const q=Q[id],a=EX.a[id],ok=a===q.ans;(by[q.group]=by[q.group]||[0,0])[1]++;if(ok){score++;by[q.group][0]++}else{wrong.push(id);if(a!=null)wrongAdd(id)}if(a!=null){logAns(id,ok,true);logPick(id,a,ok,1,true)}});
  const g=gOrder(Object.keys(by)),bo={};g.forEach(k=>bo[k]=by[k]);
  const secs=Math.round((Math.min(Date.now(),EX.end)-EX.start)/1000);EX.done=true;EX.ask=false;EX.res={score,total:EX.ids.length,by:bo,wrong,secs};exSave();
  EH.unshift({m:EX.m,t:Date.now(),score,total:EX.ids.length});EH=EH.slice(0,30);lsS('mcq_exams',JSON.stringify(EH));
@@ -529,8 +570,25 @@ async function exSubmit(auto){if(!EX||EX.done)return;clearInterval(exT);const by
  if(tab=='exam')render();window.scrollTo(0,0)}
 /* ---- student view (admin only) ---- */
 let ADM={v:'students',rows:null,det:null,q:null,rep:null,err:''};
-async function admLoad(v){ADM.v=v;ADM.err='';ADM.det=null;try{if(v=='students'){ADM.rows=await rpc('admin_students')}else if(v=='questions'){ADM.q=await rpc('admin_question_stats')}else if(v=='reports'){ADM.rep=await rpc('admin_reports')}}catch(e){ADM.err='Could not load: '+e.message}if(tab=='admin')render()}
-async function admStudent(uid){const s=(ADM.rows||[]).find(r=>r.uid==uid);ADM.det={s,rows:null,ex:null};render();try{const [rows,ex]=await Promise.all([rpc('admin_student_answers',{p_uid:uid}),sbf('/rest/v1/exams?user_id=eq.'+uid+'&select=mode,score,total,taken_at&order=taken_at.desc&limit=20')]);ADM.det.rows=rows;ADM.det.ex=ex}catch(e){ADM.err='Could not load: '+e.message}if(tab=='admin')render()}
+async function admLoad(v){ADM.os=null;ADM.v=v;ADM.err='';ADM.det=null;try{if(v=='students'){ADM.rows=await rpc('admin_students')}else if(v=='questions'){ADM.q=await rpc('admin_question_stats')}else if(v=='reports'){ADM.rep=await rpc('admin_reports')}}catch(e){ADM.err='Could not load: '+e.message}if(tab=='admin')render()}
+async function admStudent(uid){const s=(ADM.rows||[]).find(r=>r.uid==uid);ADM.det={s,rows:null,ex:null};render();try{ADM.det.rows=await rpc('admin_student_answers',{p_uid:uid})||[]}catch(e){ADM.det.rows=[];ADM.err='Could not load answers: '+e.message}try{ADM.det.pk=await rpc('admin_student_picks',{p_uid:uid})||[]}catch(e){ADM.det.pk=null}try{ADM.det.ex=await sbf('/rest/v1/exams?user_id=eq.'+uid+'&select=mode,score,total,taken_at&order=taken_at.desc&limit=20')}catch(e){ADM.det.ex=[]}if(tab=='admin')render()}
+async function admQ(id,uid){
+ const q=Q[id];if(!q)return;const L='ABCDEFGH';
+ if(!ADM.os){try{const r=await rpc('admin_option_stats')||[];ADM.os={};r.forEach(x=>{(ADM.os[x.question_id]=ADM.os[x.question_id]||{})[x.opt]=x})}catch(e){ADM.os=null}}
+ const os=(ADM.os&&ADM.os[id])||{},tot=Object.values(os).reduce((a,x)=>a+x.n,0);
+ let ses=null;if(uid&&ADM.det&&ADM.det.pk){ses=[];ADM.det.pk.filter(p=>p.question_id==id).forEach(p=>{if(p.try_n==1||!ses.length)ses.push([]);ses[ses.length-1].push(p)})}
+ const mine=new Set();(ses||[]).forEach(a=>a.forEach(p=>{if(p.opt>=0)mine.add(p.opt)}));
+ const opts=q.opts.map((o,k)=>{const c=k==q.ans,n=os[k]?os[k].n:0,m=mine.has(k);
+  const bd=c?'var(--ok)':(m?'var(--no)':'var(--line)'),bg=c?'var(--okb)':(m?'var(--nob)':'transparent');
+  const stat=tot?`${n} of ${tot} first tap${tot==1?'':'s'}${tot>=5?' · '+Math.round(n/tot*100)+'%':''}`:'';
+  return `<div style="border:1px solid ${bd};background:${bg};border-radius:10px;padding:9px 11px;margin-top:8px"><div><b class="mono">${L[k]}</b> ${esc(o)}</div><div class="mu sm" style="margin-top:3px">${c?'Correct answer':(m?'Chosen by this student':'')}${(c||m)&&stat?' · ':''}${stat}</div></div>`}).join('');
+ let who='';
+ if(uid){const nm=esc((ADM.det&&ADM.det.s&&ADM.det.s.name)||'This student');
+  if(ses===null)who=`<div class="mu sm" style="margin-top:12px">What ${nm} chose isn’t available.</div>`;
+  else if(!ses.length)who=`<div class="mu sm" style="margin-top:12px">No taps recorded for this question. It was answered before this update, so which option ${nm} chose wasn’t saved.</div>`;
+  else who=`<div style="margin-top:14px"><b>${nm}’s attempts</b>${ses.map((a,i)=>{const seq=a.map(p=>p.opt<0?'showed answer':L[p.opt]).join(' → '),ci=a.findIndex(p=>p.correct),sh=a.some(p=>p.opt<0);
+    return `<div class="sm" style="margin-top:6px"><span class="mono">${ses.length>1?'Time '+(i+1)+': ':''}${seq}</span> · ${ci>=0?'right on try '+(ci+1):(sh?'gave up':'not solved')}${a[0].exam?' (exam)':''}</div>`}).join('')}</div>`}
+ openModal(`<div class="mu sm mono">${esc(q.group)} · ${esc(q.topic)}</div><div style="margin-top:8px;white-space:pre-line">${esc(q.stem)}</div>${opts}${who}<div class="mu sm" style="margin-top:12px">${tot?'Percentages count the first option each student taps, across all students.':'No first-tap data yet. It is collected from this update onwards.'}</div><div class="row" style="margin-top:16px;justify-content:space-between"><button class="btn" onclick="closeModal()">Close</button><button class="btn" onclick="closeModal();startSet([${id}])">Open in practice</button></div>`)}
 const stemShort=id=>Q[id]?esc(Q[id].stem.length>150?Q[id].stem.slice(0,150)+'…':Q[id].stem):'(question '+id+')';
 function admView(){
  const nv=`<div class="chips" style="margin:14px 0">${[['students','Students'],['questions','Questions'],['reports','Reports']].map(x=>`<button class="chip ${ADM.v==x[0]&&!ADM.det?'sel':''}" onclick="admLoad('${x[0]}')">${x[1]}</button>`).join('')}</div>`;
@@ -542,12 +600,12 @@ function admView(){
   h+=`<div class="card" style="margin-top:12px"><div class="stat"><span class="big">${tot-wr}</span><span class="mu">right first try out of ${tot} answered</span></div></div>
   <div class="card" style="margin-top:12px"><b>By subject</b>${Object.keys(gs).length?gOrder(Object.keys(gs)).map(g=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><span>${esc(g)}</span><b class="mono">${gs[g][0]} / ${gs[g][1]}</b></div>`).join(''):'<div class="mu sm">No answers yet.</div>'}</div>
   <div class="card" style="margin-top:12px"><b>Weakest topics</b><div class="mu sm">Most wrong first-try answers</div>${Object.keys(ts).filter(k=>ts[k][0]>0).sort((a,b)=>ts[b][0]-ts[a][0]||ts[b][1]-ts[a][1]).slice(0,10).map(k=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><span>${esc(k)}</span><b class="mono">${ts[k][0]} wrong of ${ts[k][1]}</b></div>`).join('')||'<div class="mu sm">None yet.</div>'}</div>
-  <div class="card" style="margin-top:12px"><b>Questions they got wrong</b>${d.rows.filter(r=>r.wrong>0).sort((a,b)=>b.wrong-a.wrong).slice(0,25).map(r=>`<div style="padding:9px 0;border-top:1px solid var(--line)"><div class="mu sm mono">${esc(r.q_group)} · ${esc(r.q_topic)} · wrong ${r.wrong} of ${r.attempts}</div><div>${stemShort(r.question_id)}</div></div>`).join('')||'<div class="mu sm">None yet.</div>'}</div>
+  <div class="card" style="margin-top:12px"><b>Questions they got wrong</b>${d.rows.filter(r=>r.wrong>0).sort((a,b)=>b.wrong-a.wrong).slice(0,25).map(r=>`<div class="tap" style="padding:9px 0;border-top:1px solid var(--line)" onclick="admQ(${r.question_id},'${s.uid}')"><div class="mu sm mono">${esc(r.q_group)} · ${esc(r.q_topic)} · wrong ${r.wrong} of ${r.attempts}</div><div>${stemShort(r.question_id)}</div><div class="mu sm" style="margin-top:4px">Tap to see the options and what they chose ›</div></div>`).join('')||'<div class="mu sm">None yet.</div>'}</div>
   ${(d.ex&&d.ex.length)?`<div class="card" style="margin-top:12px"><b>Exams</b>${d.ex.map(e=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><span>${e.mode=='90min'?'90-minute':'3-hour'}<div class="mu sm mono">${new Date(e.taken_at).toLocaleDateString()}</div></span><b class="mono">${e.score} / ${e.total}</b></div>`).join('')}</div>`:''}`;return h}
  if(ADM.v=='students'){if(!ADM.rows){admLoad('students');return h+'<p class="mu">Loading…</p>'}
   h+=ADM.rows.length?`<table class="tbl"><tr><th>Name</th><th>Year</th><th>Answered</th><th>Right first try</th><th>Last active</th></tr>${ADM.rows.map(r=>`<tr class="cl" onclick="admStudent('${r.uid}')"><td>${esc(r.name||r.email||'')}</td><td>${esc(r.year||'')}</td><td class="mono">${r.answered}</td><td class="mono">${r.right_n}</td><td class="mono">${r.last_at?new Date(r.last_at).toLocaleDateString():'–'}</td></tr>`).join('')}</table>`:'<p class="mu">No students yet.</p>';return h}
  if(ADM.v=='questions'){if(!ADM.q){admLoad('questions');return h+'<p class="mu">Loading…</p>'}
-  const row=r=>`<div style="padding:9px 0;border-top:1px solid var(--line)"><div class="mu sm mono">${esc(Q[r.question_id]?Q[r.question_id].group:'')} · wrong ${r.wrong} of ${r.attempts} · ${r.students} student${r.students==1?'':'s'}</div><div>${stemShort(r.question_id)}</div><button class="btn sm" style="margin-top:6px" onclick="startSet([${r.question_id}])">Open</button></div>`;
+  const row=r=>`<div style="padding:9px 0;border-top:1px solid var(--line)"><div class="mu sm mono">${esc(Q[r.question_id]?Q[r.question_id].group:'')} · wrong ${r.wrong} of ${r.attempts} · ${r.students} student${r.students==1?'':'s'}</div><div class="tap" onclick="admQ(${r.question_id})">${stemShort(r.question_id)}<div class="mu sm" style="margin-top:4px">Tap to see how often each option is chosen ›</div></div><button class="btn sm" style="margin-top:6px" onclick="startSet([${r.question_id}])">Open in practice</button></div>`;
   const ok=ADM.q.filter(r=>r.attempts>=5);
   h+=`<div class="card"><b>Most often wrong</b><div class="mu sm">At least 5 answers. If almost nobody gets one right, check its answer.</div>${ok.slice().sort((a,b)=>b.wrong/b.attempts-a.wrong/a.attempts||b.attempts-a.attempts).slice(0,15).map(row).join('')||'<div class="mu sm">Not enough answers yet.</div>'}</div>
   <div class="card" style="margin-top:12px"><b>Never wrong</b><div class="mu sm">At least 5 answers and nobody missed it. These may be too easy.</div>${ok.filter(r=>r.wrong==0).sort((a,b)=>b.attempts-a.attempts).slice(0,15).map(row).join('')||'<div class="mu sm">None yet.</div>'}</div>`;return h}
